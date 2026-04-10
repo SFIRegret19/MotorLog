@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../data/datasources/db_helper.dart';
 import '../../domain/entities/consumable.dart';
 import '../../core/theme/app_theme.dart';
+import 'add_consumable_screen.dart'; // Импорт экрана добавления
 
 class ConsumablesScreen extends StatefulWidget {
   final String vehicleId;
@@ -46,7 +47,6 @@ class _ConsumablesScreenState extends State<ConsumablesScreen> {
     }
   }
 
-  // МЕТОД УДАЛЕНИЯ РАСХОДНИКА (Новое)
   void _deleteItem(Consumable item) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -81,66 +81,82 @@ class _ConsumablesScreenState extends State<ConsumablesScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _items.isEmpty
-          ? const Center(child: Text('Список пуст.'))
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: _items.length,
-              itemBuilder: (context, index) {
-                final item = _items[index];
-                return Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              ? const Center(child: Text('Список пуст.'))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _items.length,
+                  itemBuilder: (context, index) {
+                    final item = _items[index];
+                    return Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
                           children: [
-                            Text(
-                              item.name,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            // ГРУППА КНОПОК: Обновить и Удалить
                             Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.refresh,
-                                    color: AppTheme.accentPurple,
+                                Text(
+                                  item.name,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
                                   ),
-                                  onPressed: () => _resetWear(item),
-                                  tooltip: 'Заменил деталь',
                                 ),
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.delete_outline,
-                                    color: Colors.redAccent,
-                                  ),
-                                  onPressed: () => _deleteItem(item),
-                                  tooltip: 'Удалить деталь',
+                                Row(
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.refresh,
+                                        color: AppTheme.accentPurple,
+                                      ),
+                                      onPressed: () => _resetWear(item),
+                                      tooltip: 'Заменил деталь',
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.delete_outline,
+                                        color: Colors.redAccent,
+                                      ),
+                                      onPressed: () => _deleteItem(item),
+                                      tooltip: 'Удалить деталь',
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
+                            const SizedBox(height: 10),
+                            LinearProgressIndicator(
+                              value: item.currentWear,
+                              minHeight: 10,
+                              borderRadius: BorderRadius.circular(5),
+                              color: item.currentWear > 0.8
+                                  ? Colors.red
+                                  : AppTheme.accentPurple,
+                            ),
+                            const SizedBox(height: 5),
+                            Text('Износ: ${(item.currentWear * 100).toInt()}%'),
                           ],
                         ),
-                        const SizedBox(height: 10),
-                        LinearProgressIndicator(
-                          value: item.currentWear,
-                          minHeight: 10,
-                          borderRadius: BorderRadius.circular(5),
-                          color: item.currentWear > 0.8
-                              ? Colors.red
-                              : AppTheme.accentPurple,
-                        ),
-                        const SizedBox(height: 5),
-                        Text('Износ: ${(item.currentWear * 100).toInt()}%'),
-                      ],
-                    ),
-                  ),
-                );
-              },
+                      ),
+                    );
+                  },
+                ),
+      // --- НОВОЕ: КНОПКА ДОБАВЛЕНИЯ РАСХОДНИКА ---
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: AppTheme.primaryPurple,
+        onPressed: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => AddConsumableScreen(vehicleId: widget.vehicleId),
             ),
+          );
+          // Если на экране добавления нажали "Сохранить", обновляем список здесь
+          if (result == true) {
+            _loadData();
+          }
+        },
+        child: const Icon(Icons.add, color: AppTheme.accentPurple),
+      ),
     );
   }
 }
