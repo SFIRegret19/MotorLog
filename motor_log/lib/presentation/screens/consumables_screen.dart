@@ -3,6 +3,7 @@ import '../../data/datasources/db_helper.dart';
 import '../../domain/entities/consumable.dart';
 import '../../core/theme/app_theme.dart';
 import 'add_consumable_screen.dart'; // Импорт экрана добавления
+import '../../domain/entities/service_event.dart';
 
 class ConsumablesScreen extends StatefulWidget {
   final String vehicleId;
@@ -34,16 +35,53 @@ class _ConsumablesScreenState extends State<ConsumablesScreen> {
   }
 
   void _resetWear(Consumable item) async {
-    item.currentWear = 0.0;
-    await DbHelper.instance.updateConsumable(item);
-    _loadData();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${item.name} заменено!'),
-          backgroundColor: AppTheme.accentPurple,
+    final priceController = TextEditingController();
+
+    // 1. Спрашиваем цену обслуживания
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Замена: ${item.name}'),
+        content: TextField(
+          controller: priceController,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Стоимость (₽)',
+            hintText: 'Введите сумму за запчасть и работу',
+          ),
         ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, true), child: const Text('ОК')),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      final cost = double.tryParse(priceController.text) ?? 0.0;
+
+      // 2. Создаем сервисное событие (для статистики)
+      final event = ServiceEvent(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        vehicleId: widget.vehicleId,
+        date: DateTime.now().toIso8601String(),
+        mileage: 0, // В идеале тут передать текущий пробег авто
+        totalCost: cost,
+        description: 'Замена: ${item.name}',
       );
+
+      await DbHelper.instance.insertServiceEvent(event);
+
+      // 3. Обнуляем износ
+      item.currentWear = 0.0;
+      await DbHelper.instance.updateConsumable(item);
+      _loadData();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${item.name} заменено! Сумма: $cost ₽'), backgroundColor: AppTheme.accentPurple),
+        );
+      }
     }
   }
 
