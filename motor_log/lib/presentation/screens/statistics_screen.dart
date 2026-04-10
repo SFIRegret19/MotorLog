@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart'; // Добавь в pubspec.yaml: intl: ^0.19.0
 import '../../data/datasources/db_helper.dart';
 import '../../domain/entities/fuel_log.dart';
+import '../../domain/entities/service_event.dart';
 import '../../core/theme/app_theme.dart';
 
 class StatisticsScreen extends StatefulWidget {
@@ -12,52 +14,44 @@ class StatisticsScreen extends StatefulWidget {
 }
 
 class _StatisticsScreenState extends State<StatisticsScreen> {
-  List<FuelLog> _logs =[];
+  double _totalFuel = 0;
+  double _totalService = 0;
+  Map<String, double> _monthlyExpenses = {}; // Месяц -> Сумма
   bool _isLoading = true;
-
-  // Переменные для статистики
-  double _totalSpent = 0.0;
-  double _totalLiters = 0.0;
-  double _averageConsumption = 0.0;
 
   @override
   void initState() {
     super.initState();
-    _loadStatistics();
+    _calculateStats();
   }
 
-  void _loadStatistics() async {
-    final logs = await DbHelper.instance.getFuelLogs(widget.vehicleId);
-    
-    double spent = 0;
-    double liters = 0;
-    double avg = 0;
+  void _calculateStats() async {
+    final fuelLogs = await DbHelper.instance.getFuelLogs(widget.vehicleId);
+    final serviceEvents = await DbHelper.instance.getServiceEvents(
+      widget.vehicleId,
+    );
 
-    if (logs.isNotEmpty) {
-      for (var log in logs) {
-        spent += log.totalCost;
-        liters += log.liters;
-      }
+    double fuelSum = 0;
+    double serviceSum = 0;
+    Map<String, double> monthly = {};
 
-      // Для расчета расхода нужно минимум 2 заправки, чтобы узнать пройденную дистанцию
-      if (logs.length >= 2) {
-        // Сортируем по пробегу по возрастанию
-        logs.sort((a, b) => a.odometer.compareTo(b.odometer));
-        int distance = logs.last.odometer - logs.first.odometer;
-        
-        if (distance > 0) {
-          // Убираем литры первой заправки из расчета, так как это была "отправная точка"
-          double litersForDistance = liters - logs.first.liters;
-          avg = (litersForDistance / distance) * 100;
-        }
-      }
+    for (var log in fuelLogs) {
+      fuelSum += log.totalCost;
+      String monthKey = DateFormat('MMM yyyy').format(log.date);
+      monthly[monthKey] = (monthly[monthKey] ?? 0) + log.totalCost;
+    }
+
+    for (var event in serviceEvents) {
+      serviceSum += event.totalCost;
+      DateTime date = DateTime.parse(event.date);
+      String monthKey = DateFormat('MMM yyyy').format(date);
+      monthly[monthKey] = (monthly[monthKey] ?? 0) + event.totalCost;
     }
 
     setState(() {
-      _logs = logs;
-      _totalSpent = spent;
-      _totalLiters = liters;
-      _averageConsumption = avg;
+      _totalFuel = fuelSum;
+      _totalService = serviceSum;
+      _monthlyExpenses = monthly;
       _isLoading = false;
     });
   }
@@ -65,108 +59,115 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Статистика авто')),
+      appBar: AppBar(title: const Text('Финансовый отчет')),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children:[
-                  // КАРТОЧКА СРЕДНЕГО РАСХОДА
-                  _buildStatCard(
-                    title: 'Средний расход',
-                    value: _logs.length >= 2 ? '${_averageConsumption.toStringAsFixed(1)} л/100 км' : 'Мало данных',
-                    icon: Icons.speed,
-                    color: Colors.orangeAccent,
-                    subtitle: _logs.length < 2 ? 'Добавьте еще заправки для расчета' : null,
-                  ),
-                  const SizedBox(height: 12),
+          : ListView(
+              padding: const EdgeInsets.all(16),
+              children: [
+                // ОБЩИЙ ИТОГ
+                _buildMainBalance(),
+                const SizedBox(height: 20),
 
-                  // РЯД ИЗ ДВУХ КАРТОЧЕК (ДЕНЬГИ И ЛИТРЫ)
-                  Row(
-                    children:[
-                      Expanded(
-                        child: _buildStatCard(
-                          title: 'Потрачено',
-                          value: '${_totalSpent.toStringAsFixed(0)} ₽',
-                          icon: Icons.account_balance_wallet,
-                          color: Colors.green,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _buildStatCard(
-                          title: 'Залито',
-                          value: '${_totalLiters.toStringAsFixed(0)} л',
-                          icon: Icons.local_gas_station,
-                          color: Colors.blueAccent,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  
-                  const Text('История заправок:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
+                const Text(
+                  'Расходы по месяцам',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 10),
 
-                  // ИСТОРИЯ ЗАПРАВОК
-                  Expanded(
-                    child: _logs.isEmpty
-                        ? const Center(child: Text('Нет данных о заправках'))
-                        : ListView.builder(
-                            itemCount: _logs.length,
-                            itemBuilder: (context, index) {
-                              // Сортируем для вывода от новых к старым
-                              _logs.sort((a, b) => b.date.compareTo(a.date));
-                              final log = _logs[index];
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                child: ListTile(
-                                  leading: const CircleAvatar(
-                                    backgroundColor: AppTheme.primaryPurple,
-                                    child: Icon(Icons.ev_station, color: AppTheme.accentPurple),
-                                  ),
-                                  title: Text('${log.liters} л  •  ${log.totalCost.toStringAsFixed(0)} ₽'),
-                                  subtitle: Text('Пробег: ${log.odometer} км'),
-                                  trailing: Text(
-                                    '${log.date.day}.${log.date.month}.${log.date.year}',
-                                    style: const TextStyle(color: Colors.grey),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                ],
-              ),
+                // ГРАФИК (Упрощенный в виде списка баров)
+                ..._monthlyExpenses.entries
+                    .map((e) => _buildMonthRow(e.key, e.value))
+                    .toList(),
+
+                const SizedBox(height: 20),
+                const Text(
+                  'Разделение затрат',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 10),
+
+                _buildCategoryTile(
+                  'Топливо',
+                  _totalFuel,
+                  Icons.local_gas_station,
+                  Colors.blue,
+                ),
+                _buildCategoryTile(
+                  'Сервис и ТО',
+                  _totalService,
+                  Icons.build,
+                  Colors.orange,
+                ),
+              ],
             ),
     );
   }
 
-  // Вспомогательный виджет для красивых карточек
-  Widget _buildStatCard({required String title, required String value, required IconData icon, required Color color, String? subtitle}) {
+  Widget _buildMainBalance() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.primaryPurple, width: 1.5),
-        boxShadow:[BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4))],
+        color: AppTheme.accentPurple,
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children:[
-          Icon(icon, color: color, size: 28),
-          const SizedBox(height: 12),
-          Text(title, style: const TextStyle(color: Colors.grey, fontSize: 14)),
-          const SizedBox(height: 4),
-          Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
-          if (subtitle != null) ...[
-            const SizedBox(height: 4),
-            Text(subtitle, style: const TextStyle(fontSize: 10, color: Colors.redAccent)),
-          ]
+        children: [
+          const Text(
+            'Всего потрачено на авто',
+            style: TextStyle(color: Colors.white70),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${(_totalFuel + _totalService).toStringAsFixed(0)} ₽',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildMonthRow(String month, double amount) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          SizedBox(width: 80, child: Text(month)),
+          Expanded(
+            child: LinearProgressIndicator(
+              value: amount / (_totalFuel + _totalService + 1),
+              backgroundColor: AppTheme.primaryPurple.withOpacity(0.3),
+              color: AppTheme.accentPurple,
+              minHeight: 12,
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text('${amount.toInt()} ₽'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryTile(
+    String title,
+    double amount,
+    IconData icon,
+    Color color,
+  ) {
+    return Card(
+      child: ListTile(
+        leading: Icon(icon, color: color),
+        title: Text(title),
+        trailing: Text(
+          '${amount.toStringAsFixed(0)} ₽',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'package:path/path.dart';
 import '../../domain/entities/vehicle.dart';
 import '../../domain/entities/consumable.dart';
 import '../../domain/entities/fuel_log.dart';
+import '../../domain/entities/service_event.dart';
 
 class DbHelper {
   static final DbHelper instance = DbHelper._init();
@@ -230,5 +231,24 @@ class DbHelper {
     final result = await db.query('fuel_logs', where: 'vehicleId = ?', whereArgs: [vehicleId], orderBy: 'odometer DESC');
     // Чтобы этот код не светился красным, убедись, что создал файл fuel_log.dart с методом fromMap (я давал его в прошлом сообщении)
     return result.map((json) => FuelLog.fromMap(json)).toList();
+  }
+
+  // --- МЕТОДЫ ДЛЯ СЕРВИСНЫХ СОБЫТИЙ (SERVICE EVENTS) ---
+  Future<void> insertServiceEvent(ServiceEvent event) async {
+    final db = await instance.database;
+    await db.insert('service_events', event.toMap());
+  }
+
+  Future<List<ServiceEvent>> getServiceEvents(String vehicleId) async {
+    final db = await instance.database;
+    final result = await db.query('service_events', where: 'vehicleId = ?', whereArgs: [vehicleId]);
+    return result.map((json) => ServiceEvent(
+      id: json['id'] as String,
+      vehicleId: json['vehicleId'] as String,
+      date: json['date'] as String,
+      mileage: json['mileage'] as int,
+      totalCost: json['totalCost'] as double,
+      description: json['description'] as String,
+    )).toList();
   }
 }
