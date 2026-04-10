@@ -6,7 +6,7 @@ import '../../data/datasources/db_helper.dart';
 
 class AddFuelScreen extends StatefulWidget {
   final String vehicleId;
-  final int currentMileage; // Чтобы подсказывать пользователю текущий пробег
+  final int currentMileage;
 
   const AddFuelScreen({super.key, required this.vehicleId, required this.currentMileage});
 
@@ -24,7 +24,7 @@ class _AddFuelScreenState extends State<AddFuelScreen> {
   @override
   void initState() {
     super.initState();
-    // Подставляем текущий пробег по умолчанию
+    // Подставляем текущий пробег авто по умолчанию
     _odometerController = TextEditingController(text: widget.currentMileage.toString());
     
     // Слушатели для авто-расчета итоговой стоимости
@@ -41,13 +41,34 @@ class _AddFuelScreenState extends State<AddFuelScreen> {
   }
 
   void _saveFuelLog() async {
-    if (_litersController.text.isEmpty || _priceController.text.isEmpty || _odometerController.text.isEmpty) return;
+    // 1. Проверка на пустые поля
+    if (_litersController.text.isEmpty || _priceController.text.isEmpty || _odometerController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Пожалуйста, заполните все поля')),
+      );
+      return;
+    }
 
+    final int inputOdometer = int.parse(_odometerController.text);
+
+    // --- 2. ВАЛИДАЦИЯ ПРОБЕГА (ТО, ЧТО ТЫ ПРОСИЛ) ---
+    if (inputOdometer < widget.currentMileage) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ошибка! Пробег не может быть меньше текущего (${widget.currentMileage} км).'),
+          backgroundColor: Colors.redAccent,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return; // Прерываем сохранение
+    }
+
+    // 3. Если всё ок, сохраняем в базу
     final log = FuelLog(
       id: const Uuid().v4(),
       vehicleId: widget.vehicleId,
       date: DateTime.now(),
-      odometer: int.parse(_odometerController.text),
+      odometer: inputOdometer,
       liters: double.parse(_litersController.text),
       pricePerLiter: double.parse(_priceController.text),
       totalCost: _totalCost,
@@ -57,15 +78,18 @@ class _AddFuelScreenState extends State<AddFuelScreen> {
     
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Заправка добавлена, данные авто обновлены!')),
+      const SnackBar(
+        content: Text('Заправка добавлена, данные авто обновлены!'),
+        backgroundColor: AppTheme.accentPurple,
+      ),
     );
-    Navigator.pop(context, true);
+    Navigator.pop(context, true); // Возвращаемся в гараж
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Заправка')),
+      appBar: AppBar(title: const Text('Новая заправка')),
       body: Padding(
         padding: const EdgeInsets.all(20.0),
         child: Column(
@@ -94,7 +118,10 @@ class _AddFuelScreenState extends State<AddFuelScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children:[
                   const Text('Итого к оплате:', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  Text('${_totalCost.toStringAsFixed(2)} ₽', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.accentPurple)),
+                  Text(
+                    '${_totalCost.toStringAsFixed(2)} ₽', 
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: AppTheme.accentPurple)
+                  ),
                 ],
               ),
             ),
