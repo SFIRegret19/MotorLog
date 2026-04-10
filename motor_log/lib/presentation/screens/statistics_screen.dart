@@ -4,6 +4,7 @@ import '../../data/datasources/db_helper.dart';
 import '../../domain/entities/fuel_log.dart';
 import '../../domain/entities/service_event.dart';
 import '../../core/theme/app_theme.dart';
+import 'trip_calculator_screen.dart'; // Импорт калькулятора
 
 class StatisticsScreen extends StatefulWidget {
   final String vehicleId;
@@ -30,8 +31,9 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     final fuel = await DbHelper.instance.getFuelLogs(widget.vehicleId);
     final service = await DbHelper.instance.getServiceEvents(widget.vehicleId);
 
-    double fuelSum = fuel.fold(0, (sum, item) => sum + item.totalCost);
-    double serviceSum = service.fold(0, (sum, item) => sum + item.totalCost);
+    // Используем 0.0, чтобы избежать ошибок типизации double/int
+    double fuelSum = fuel.fold(0.0, (sum, item) => sum + item.totalCost);
+    double serviceSum = service.fold(0.0, (sum, item) => sum + item.totalCost);
 
     setState(() {
       _fuelLogs = fuel;
@@ -57,7 +59,11 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         child: Column(
           children: [
             const SizedBox(height: 12),
-            Container(width: 50, height: 5, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10))),
+            Container(
+              width: 50, 
+              height: 5, 
+              decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(10))
+            ),
             Padding(
               padding: const EdgeInsets.all(20),
               child: Text(title, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
@@ -102,6 +108,31 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
                 color: Colors.orangeAccent,
                 onTap: () => _showDetails('История обслуживания', _buildServiceList()),
               ),
+
+              // --- НОВОЕ: КНОПКА ПЕРЕХОДА В КАЛЬКУЛЯТОР ---
+              const SizedBox(height: 32),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => TripCalculatorScreen(vehicleId: widget.vehicleId),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.calculate, color: Colors.white),
+                label: const Text(
+                  'Рассчитать стоимость поездки',
+                  style: TextStyle(color: Colors.white, fontSize: 16),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.accentPurple,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  elevation: 2,
+                ),
+              ),
+              const SizedBox(height: 20),
             ],
           ),
     );
@@ -150,7 +181,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
     );
   }
 
-  // СПИСОК ЗАПРАВОК (Тот самый дизайн, который понравился)
   Widget _buildFuelList() {
     return _fuelLogs.isEmpty 
       ? const Center(child: Text('Заправок пока нет'))
@@ -167,7 +197,6 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         );
   }
 
-// СПИСОК СЕРВИСА
   Widget _buildServiceList() {
     return _serviceLogs.isEmpty 
       ? const Center(child: Text('Сервисных записей нет'))
@@ -192,6 +221,3 @@ class _StatisticsScreenState extends State<StatisticsScreen> {
         );
   }
 }
-
-// Добавим расширение для цвета в тему или используем:
-extension on Colors { static const Color orangeOpacity = Color(0xFFFFECB3); }
