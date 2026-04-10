@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../../domain/entities/vehicle.dart';
 import '../../domain/entities/consumable.dart';
+import '../../domain/entities/fuel_log.dart';
 
 class DbHelper {
   static final DbHelper instance = DbHelper._init();
@@ -72,7 +73,23 @@ class DbHelper {
         FOREIGN KEY (vehicleId) REFERENCES vehicles (id) ON DELETE CASCADE
       )
     ''');
+
+    // 5. Таблица Заправок (Fuel Logs)
+    await db.execute('''
+      CREATE TABLE fuel_logs (
+        id TEXT PRIMARY KEY,
+        vehicleId TEXT,
+        date TEXT,
+        odometer INTEGER,
+        liters REAL,
+        pricePerLiter REAL,
+        totalCost REAL,
+        FOREIGN KEY (vehicleId) REFERENCES vehicles (id) ON DELETE CASCADE
+      )
+    ''');
   }
+
+
 
   // --- МЕТОДЫ ДЛЯ РАБОТЫ С МАШИНАМИ ---
 
@@ -100,6 +117,38 @@ class DbHelper {
     // Благодаря ON DELETE CASCADE в структуре БД,
     // при удалении машины её расходники удалятся автоматически
     await db.delete('vehicles', where: 'id = ?', whereArgs: [id]);
+  }
+
+// ОБНОВЛЕНИЕ ПРОБЕГА С УМНЫМ РАСЧЕТОМ ИЗНОСА
+  Future<void> updateVehicleMileage(String vehicleId, int newMileage) async {
+    final db = await instance.database;
+
+    // 1. Получаем текущие данные машины, чтобы узнать старый пробег
+    final vehicleMaps = await db.query('vehicles', where: 'id = ?', whereArgs: [vehicleId]);
+    if (vehicleMaps.isEmpty) return;
+    
+    final int oldMileage = vehicleMaps.first['currentMileage'] as int;
+    final int delta = newMileage - oldMileage;
+
+    // Проблема 1: Если пробег не изменился или стал меньше (ошибка ввода), ничего не считаем
+    if (delta <= 0) return;
+
+    // 2. Обновляем пробег в таблице машин
+    await db.update('vehicles', {'currentMileage': newMileage}, where: 'id = ?', whereArgs: [vehicleId]);
+
+    // 3. Получаем все расходники этой машины
+    final consumables = await getConsumables(vehicleId);
+
+    for (var item in consumables) {
+      // Проблема 2: Рассчитываем износ индивидуально!
+      // Рост износа = пройденное расстояние / лимит ресурса этой детали
+      double wearIncrease = delta / item.resourceLimit;
+      
+      // Обновляем значение, ограничивая его максимумом 1.0 (100%)
+      item.currentWear = (item.currentWear + wearIncrease).clamp(0.0, 1.0);
+      
+      await updateConsumable(item);
+    }
   }
 
   // --- МЕТОДЫ ДЛЯ РАБОТЫ С РАСХОДНИКАМИ ---
@@ -136,24 +185,50 @@ class DbHelper {
   }
 
   // Авто-генерация расходников для новой машины
+  // Настройка реалистичных лимитов при создании машины
   Future<void> initDefaultConsumables(String vehicleId) async {
     final db = await instance.database;
     final List<Map<String, dynamic>> defaults = [
-      {'name': 'Масло моторное', 'limit': 10000},
-      {'name': 'Фильтр масляный', 'limit': 10000},
-      {'name': 'Тормозные колодки', 'limit': 30000},
+      {'name': 'Масло моторное', 'limit': 7500},     // Ресурс 7.5к км
+      {'name': 'Фильтр воздушный', 'limit': 15000},  // Ресурс 15к км
+      {'name': 'Тормозные колодки', 'limit': 30000}, // Ресурс 30к км
     ];
 
     for (int i = 0; i < defaults.length; i++) {
       final item = defaults[i];
       await db.insert('consumables', {
-        // Создаем уникальный ID: ID_машины + индекс + название
-        'id': '${vehicleId}_${i}_${item['name']}',
+        'id': '${vehicleId}_${i}', 
         'vehicleId': vehicleId,
         'name': item['name'],
-        'resourceLimit': item['limit'],
-        'currentWear': 0.05,
+        'resourceLimit': item['limit'], // Используем индивидуальный лимит
+        'currentWear': 0.0, // Новая машина - 0% износа
       });
     }
+  }
+
+
+  // --- МЕТОДЫ ДЛЯ ЗАПРАВОК (FUEL LOGS) ---
+
+  Future<void> insertFuelLog(FuelLog log) async {
+    final db = await instance.database;
+    await db.insert('fuel_logs', log.toMap());
+
+    // УМНАЯ ЛОГИКА: Проверяем, если пробег на заправке больше текущего пробега авто
+    final vehicleMaps = await db.query('vehicles', where: 'id = ?', whereArgs: [log.vehicleId]);
+    if (vehicleMaps.isNotEmpty) {
+      final currentMileage = vehicleMaps.first['currentMileage'] as int;
+      if (log.odometer > currentMileage) {
+        // Вызываем НАШ ЖЕ метод обновления пробега!
+        // Он сам обновит цифру у машины и пересчитает износ всех расходников!
+        await updateVehicleMileage(log.vehicleId, log.odometer);
+      }
+    }
+  }
+
+  Future<List<FuelLog>> getFuelLogs(String vehicleId) async {
+    final db = await instance.database;
+    final result = await db.query('fuel_logs', where: 'vehicleId = ?', whereArgs: [vehicleId], orderBy: 'odometer DESC');
+    // Чтобы этот код не светился красным, убедись, что создал файл fuel_log.dart с методом fromMap (я давал его в прошлом сообщении)
+    return result.map((json) => FuelLog.fromMap(json)).toList();
   }
 }
