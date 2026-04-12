@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../data/datasources/db_helper.dart';
 import '../../domain/entities/vehicle.dart';
 import '../../core/theme/app_theme.dart';
+import '../../data/api_client/weather_service.dart';
 import 'add_vehicle_screen.dart';
 import 'consumables_screen.dart';
 import 'ai_chat_screen.dart';
@@ -19,12 +20,36 @@ class _GarageScreenState extends State<GarageScreen> {
   List<Vehicle> _vehicles = [];
   bool _isLoading = true;
 
+  // Добавляем переменные погоды
+  WeatherInfo? _weatherInfo;
+  bool _isWeatherLoading = true;
+
   @override
   void initState() {
     super.initState();
     _refreshVehicles();
+    _loadWeather();
   }
 
+  // метод для загрузки погоды и совета
+  void _loadWeather() async {
+      // Включаем крутилку перед новым запросом
+      setState(() {
+        _isWeatherLoading = true;
+      });
+      
+      final weatherService = WeatherService();
+      final info = await weatherService.getCurrentWeatherAndAdvice();
+      
+      if (mounted) {
+        setState(() {
+          _weatherInfo = info;
+          _isWeatherLoading = false;
+        });
+      }
+    }
+
+  // метод для обновления списка автомобилей после добавления/удаления/обновления пробега
   void _refreshVehicles() async {
     final data = await DbHelper.instance.getVehicles();
     setState(() {
@@ -33,11 +58,13 @@ class _GarageScreenState extends State<GarageScreen> {
     });
   }
 
+  // метод для удаления автомобиля и всех связанных данных (расходники, заправки, сервисные события)
   void _deleteVehicle(String id) async {
     await DbHelper.instance.deleteVehicle(id);
     _refreshVehicles();
   }
 
+  // метод для отображения диалогового окна подтверждения удаления
   void _showDeleteDialog(Vehicle car) {
     showDialog(
       context: context,
@@ -107,36 +134,87 @@ class _GarageScreenState extends State<GarageScreen> {
     );
   }
 
-  // --- ВИДЖЕТ ПОГОДЫ (МОК) ---
+  // --- ВИДЖЕТ ПОГОДЫ ---
   Widget _buildWeatherWidget() {
-    const String weather = "Снег, -5°C";
-    const String tip = "Совет: Проверьте давление в шинах из-за перепада температур!";
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.blue[50],
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.blue[100]!, width: 1.5),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.ac_unit, color: Colors.blue, size: 36),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(weather, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87)),
-                const SizedBox(height: 4),
-                Text(tip, style: TextStyle(fontSize: 12, color: Colors.blue[900])),
-              ],
-            ),
+      if (_isWeatherLoading) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.blue[50],
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.blue[100]!, width: 1.5),
           ),
-        ],
-      ),
-    );
-  }
+          child: const Center(child: CircularProgressIndicator()),
+        );
+      }
+
+      if (_weatherInfo == null) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.grey[200],
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.grey[400]!, width: 1.5),
+          ),
+          child: Row(
+            children:[
+              const Icon(Icons.location_off, color: Colors.grey, size: 36),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children:[
+                    const Text('Погода недоступна', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 4),
+                    Text('Включите GPS и интернет, затем нажмите обновить.', 
+                        style: TextStyle(fontSize: 12, color: Colors.grey[800])),
+                  ],
+                ),
+              ),
+              // КНОПКА ОБНОВЛЕНИЯ ПРИ ОШИБКЕ
+              IconButton(
+                icon: const Icon(Icons.refresh, color: Colors.black54),
+                onPressed: _loadWeather,
+              ),
+            ],
+          ),
+        );
+      }
+
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.blue[50],
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: Colors.blue[100]!, width: 1.5),
+        ),
+        child: Row(
+          children:[
+            const Icon(Icons.cloud_sync, color: Colors.blue, size: 36),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children:[
+                  Text('${_weatherInfo!.description}, ${_weatherInfo!.temp}', 
+                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Colors.black87)),
+                  const SizedBox(height: 4),
+                  Text(_weatherInfo!.advice, style: TextStyle(fontSize: 12, color: Colors.blue[900])),
+                ],
+              ),
+            ),
+            // КНОПКА ОБНОВЛЕНИЯ ПРИ УСПЕХЕ
+            IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.blue),
+              onPressed: _loadWeather,
+            ),
+          ],
+        ),
+      );
+    }
 
   @override
   Widget build(BuildContext context) {
