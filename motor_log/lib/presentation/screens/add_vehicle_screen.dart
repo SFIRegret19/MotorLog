@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Для форматирования ввода
 import 'package:uuid/uuid.dart';
 import '../../core/theme/app_theme.dart';
 import '../../domain/entities/vehicle.dart';
@@ -14,14 +15,13 @@ class AddVehicleScreen extends StatefulWidget {
 class _AddVehicleScreenState extends State<AddVehicleScreen> {
   final _yearController = TextEditingController();
   final _mileageController = TextEditingController();
+  final _vinController = TextEditingController(); // НОВОЕ ПОЛЕ ДЛЯ VIN
 
-  // Наша локальная база марок и моделей (Мок-справочник)
-  // В будущем можно грузить этот список из API или JSON-файла
   final Map<String, List<String>> _carDatabase = {
     'Toyota':['Camry', 'Corolla', 'RAV4', 'Land Cruiser'],
     'BMW':['3 Series', '5 Series', 'X5', 'X6'],
     'Mercedes-Benz':['C-Class', 'E-Class', 'GLC', 'GLE'],
-    'Kia': ['Rio', 'Sportage', 'Optima', 'Sorento'],
+    'Kia':['Rio', 'Sportage', 'Optima', 'Sorento'],
     'Lada': ['Vesta', 'Granta', 'Niva'],
     'Cadillac': ['Escalade', 'XT5', 'CT6'],
   };
@@ -29,10 +29,33 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
   String? _selectedBrand;
   String? _selectedModel;
 
+  // --- ЛОГИКА ВАЛИДАЦИИ VIN ---
+  bool _isValidVin(String vin) {
+    // Регулярное выражение: ровно 17 символов, буквы A-Z и цифры 0-9. 
+    // Буквы I, O, Q - исключены.
+    final RegExp vinRegex = RegExp(r'^[A-HJ-NPR-Z0-9]{17}$');
+    return vinRegex.hasMatch(vin);
+  }
+
   void _saveVehicle() async {
-    if (_selectedBrand == null || _selectedModel == null || _yearController.text.isEmpty || _mileageController.text.isEmpty) {
+    // 1. Проверка на пустоту
+    if (_selectedBrand == null || _selectedModel == null || 
+        _yearController.text.isEmpty || _mileageController.text.isEmpty || _vinController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Пожалуйста, заполните все поля')),
+      );
+      return;
+    }
+
+    // 2. ВАЛИДАЦИЯ VIN НОМЕРА
+    final vin = _vinController.text.toUpperCase();
+    if (!_isValidVin(vin)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Неверный VIN! Должно быть 17 символов (без букв I, O, Q)'),
+          backgroundColor: Colors.redAccent,
+          duration: Duration(seconds: 4),
+        ),
       );
       return;
     }
@@ -43,8 +66,9 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
       brand: _selectedBrand!,
       model: _selectedModel!,
       year: int.parse(_yearController.text),
-      vin: "Не указан",
+      vin: vin, // Передаем валидный VIN
       currentMileage: int.parse(_mileageController.text),
+      isSynced: 0, // Для синхронизации
     );
 
     await DbHelper.instance.insertVehicle(newVehicle);
@@ -56,17 +80,15 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Получаем список моделей для выбранной марки, если марка не выбрана - список пуст
     List<String> availableModels = _selectedBrand != null ? _carDatabase[_selectedBrand]! :[];
 
     return Scaffold(
       appBar: AppBar(title: const Text('Добавить автомобиль')),
-      body: Padding(
+      body: SingleChildScrollView( // Чтобы клавиатура не перекрывала поля
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children:[
-            // ВЫПАДАЮЩИЙ СПИСОК МАРОК
             DropdownButtonFormField<String>(
               decoration: _inputDecoration('Марка автомобиля'),
               value: _selectedBrand,
@@ -76,34 +98,48 @@ class _AddVehicleScreenState extends State<AddVehicleScreen> {
               onChanged: (newValue) {
                 setState(() {
                   _selectedBrand = newValue;
-                  _selectedModel = null; // Сбрасываем модель при смене марки
+                  _selectedModel = null;
                 });
               },
             ),
             const SizedBox(height: 16),
 
-            // ВЫПАДАЮЩИЙ СПИСОК МОДЕЛЕЙ (зависит от марки)
             DropdownButtonFormField<String>(
               decoration: _inputDecoration('Модель автомобиля'),
               value: _selectedModel,
               isExpanded: true,
-              // Если марка не выбрана, блокируем список моделей
               items: availableModels.map((String model) {
                 return DropdownMenuItem<String>(value: model, child: Text(model));
               }).toList(),
               onChanged: availableModels.isEmpty ? null : (newValue) {
-                setState(() {
-                  _selectedModel = newValue;
-                });
+                setState(() => _selectedModel = newValue);
               },
             ),
             const SizedBox(height: 16),
 
-            _buildTextField(_yearController, 'Год выпуска', keyboardType: TextInputType.number),
+            Row(
+              children:[
+                Expanded(child: _buildTextField(_yearController, 'Год', keyboardType: TextInputType.number)),
+                const SizedBox(width: 16),
+                Expanded(child: _buildTextField(_mileageController, 'Пробег (км)', keyboardType: TextInputType.number)),
+              ],
+            ),
             const SizedBox(height: 16),
-            _buildTextField(_mileageController, 'Текущий пробег (км)', keyboardType: TextInputType.number),
+
+            // ПОЛЕ ДЛЯ VIN НОМЕРА
+            TextField(
+              controller: _vinController,
+              maxLength: 17, // Ограничение ввода до 17 символов
+              textCapitalization: TextCapitalization.characters, // Клавиатура сразу пишет заглавными
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')), // Запрещаем вводить пробелы и спецсимволы
+              ],
+              decoration: _inputDecoration('VIN номер (17 символов)').copyWith(
+                counterText: '', // Убираем счетчик 0/17 снизу
+              ),
+            ),
             
-            const Spacer(),
+            const SizedBox(height: 32),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.accentPurple,

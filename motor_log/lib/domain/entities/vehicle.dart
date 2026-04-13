@@ -5,6 +5,7 @@ class Vehicle {
   final int year;
   final String vin;
   int currentMileage;
+  int isSynced; // 0 = Offline, 1 = Online
 
   Vehicle({
     this.id,
@@ -13,6 +14,7 @@ class Vehicle {
     required this.year,
     required this.vin,
     required this.currentMileage,
+    this.isSynced = 0, // По умолчанию машина не синхронизирована
   });
 
   // Превращаем объект машины в таблицу для SQLite (Map)
@@ -24,6 +26,7 @@ class Vehicle {
       'year': year,
       'vin': vin,
       'currentMileage': currentMileage,
+      'isSynced': isSynced,
     };
   }
 
@@ -36,6 +39,7 @@ class Vehicle {
       year: map['year'],
       vin: map['vin'],
       currentMileage: map['currentMileage'],
+      isSynced: map['isSynced'] ?? 0,
     );
   }
 }

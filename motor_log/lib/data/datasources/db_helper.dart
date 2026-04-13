@@ -33,11 +33,12 @@ class DbHelper {
         model TEXT,
         year INTEGER,
         vin TEXT,
-        currentMileage INTEGER
+        currentMileage INTEGER,  -- ИСПРАВЛЕНО: добавлена запятая
+        isSynced INTEGER DEFAULT 0
       )
     ''');
 
-    // 2. Таблица Расходников (Consumable) - добавлена связь vehicleId
+    // 2. Таблица Расходников (Consumable)
     await db.execute('''
       CREATE TABLE consumables (
         id TEXT PRIMARY KEY,
@@ -49,7 +50,7 @@ class DbHelper {
       )
     ''');
 
-    // 3. Таблица Сервисных событий (ServiceEvent) - из твоей диаграммы
+    // 3. Таблица Сервисных событий (ServiceEvent)
     await db.execute('''
       CREATE TABLE service_events (
         id TEXT PRIMARY KEY,
@@ -90,8 +91,6 @@ class DbHelper {
     ''');
   }
 
-
-
   // --- МЕТОДЫ ДЛЯ РАБОТЫ С МАШИНАМИ ---
 
   // Метод для вставки авто
@@ -108,48 +107,60 @@ class DbHelper {
   Future<List<Vehicle>> getVehicles() async {
     final db = await instance.database;
     final result = await db.query('vehicles');
-    // Превращаем List<Map> в List<Vehicle>
     return result.map((json) => Vehicle.fromMap(json)).toList();
   }
 
   // Метод удаления авто
   Future<void> deleteVehicle(String id) async {
     final db = await instance.database;
-    // Благодаря ON DELETE CASCADE в структуре БД,
-    // при удалении машины её расходники удалятся автоматически
     await db.delete('vehicles', where: 'id = ?', whereArgs: [id]);
   }
 
-// ОБНОВЛЕНИЕ ПРОБЕГА С УМНЫМ РАСЧЕТОМ ИЗНОСА
+  // ОБНОВЛЕНИЕ ПРОБЕГА С УМНЫМ РАСЧЕТОМ ИЗНОСА
   Future<void> updateVehicleMileage(String vehicleId, int newMileage) async {
     final db = await instance.database;
 
-    // 1. Получаем текущие данные машины, чтобы узнать старый пробег
     final vehicleMaps = await db.query('vehicles', where: 'id = ?', whereArgs: [vehicleId]);
     if (vehicleMaps.isEmpty) return;
     
     final int oldMileage = vehicleMaps.first['currentMileage'] as int;
     final int delta = newMileage - oldMileage;
 
-    // Проблема 1: Если пробег не изменился или стал меньше (ошибка ввода), ничего не считаем
     if (delta <= 0) return;
 
-    // 2. Обновляем пробег в таблице машин
-    await db.update('vehicles', {'currentMileage': newMileage}, where: 'id = ?', whereArgs: [vehicleId]);
+    // ИСПРАВЛЕНИЕ: Ставим isSynced = 0, чтобы машина снова отправилась в облако
+    await db.update(
+      'vehicles', 
+      {
+        'currentMileage': newMileage,
+        'isSynced': 0 // <-- ДОБАВЬ ЭТУ СТРОЧКУ
+      }, 
+      where: 'id = ?', 
+      whereArgs: [vehicleId]
+    );
 
-    // 3. Получаем все расходники этой машины
     final consumables = await getConsumables(vehicleId);
 
     for (var item in consumables) {
-      // Проблема 2: Рассчитываем износ индивидуально!
-      // Рост износа = пройденное расстояние / лимит ресурса этой детали
       double wearIncrease = delta / item.resourceLimit;
-      
-      // Обновляем значение, ограничивая его максимумом 1.0 (100%)
       item.currentWear = (item.currentWear + wearIncrease).clamp(0.0, 1.0);
-      
       await updateConsumable(item);
     }
+  }
+
+  // --- МЕТОДЫ ДЛЯ СИНХРОНИЗАЦИИ (OFFLINE / ONLINE) ---
+
+  // Получить список машин, которые еще не отправлены на сервер
+  Future<List<Vehicle>> getUnsyncedVehicles() async {
+    final db = await instance.database;
+    final result = await db.query('vehicles', where: 'isSynced = ?', whereArgs: [0]);
+    return result.map((json) => Vehicle.fromMap(json)).toList();
+  }
+
+  // Пометить машину как успешно отправленную на сервер
+  Future<void> markVehicleAsSynced(String id) async {
+    final db = await instance.database;
+    await db.update('vehicles', {'isSynced': 1}, where: 'id = ?', whereArgs:[id]);
   }
 
   // --- МЕТОДЫ ДЛЯ РАБОТЫ С РАСХОДНИКАМИ ---
@@ -161,7 +172,6 @@ class DbHelper {
       where: 'vehicleId = ?',
       whereArgs: [vehicleId],
     );
-    // Превращаем List<Map> в List<Consumable>
     return result.map((json) => Consumable.fromMap(json)).toList();
   }
 
@@ -185,14 +195,12 @@ class DbHelper {
     await db.delete('consumables', where: 'id = ?', whereArgs: [id]);
   }
 
-  // Авто-генерация расходников для новой машины
-  // Настройка реалистичных лимитов при создании машины
   Future<void> initDefaultConsumables(String vehicleId) async {
     final db = await instance.database;
-    final List<Map<String, dynamic>> defaults = [
-      {'name': 'Масло моторное', 'limit': 7500},     // Ресурс 7.5к км
-      {'name': 'Фильтр воздушный', 'limit': 15000},  // Ресурс 15к км
-      {'name': 'Тормозные колодки', 'limit': 30000}, // Ресурс 30к км
+    final List<Map<String, dynamic>> defaults =[
+      {'name': 'Масло моторное', 'limit': 7500},     
+      {'name': 'Фильтр воздушный', 'limit': 15000},  
+      {'name': 'Тормозные колодки', 'limit': 30000}, 
     ];
 
     for (int i = 0; i < defaults.length; i++) {
@@ -201,12 +209,11 @@ class DbHelper {
         'id': '${vehicleId}_${i}', 
         'vehicleId': vehicleId,
         'name': item['name'],
-        'resourceLimit': item['limit'], // Используем индивидуальный лимит
-        'currentWear': 0.0, // Новая машина - 0% износа
+        'resourceLimit': item['limit'], 
+        'currentWear': 0.0, 
       });
     }
   }
-
 
   // --- МЕТОДЫ ДЛЯ ЗАПРАВОК (FUEL LOGS) ---
 
@@ -214,13 +221,10 @@ class DbHelper {
     final db = await instance.database;
     await db.insert('fuel_logs', log.toMap());
 
-    // УМНАЯ ЛОГИКА: Проверяем, если пробег на заправке больше текущего пробега авто
     final vehicleMaps = await db.query('vehicles', where: 'id = ?', whereArgs: [log.vehicleId]);
     if (vehicleMaps.isNotEmpty) {
       final currentMileage = vehicleMaps.first['currentMileage'] as int;
       if (log.odometer > currentMileage) {
-        // Вызываем НАШ ЖЕ метод обновления пробега!
-        // Он сам обновит цифру у машины и пересчитает износ всех расходников!
         await updateVehicleMileage(log.vehicleId, log.odometer);
       }
     }
@@ -228,12 +232,12 @@ class DbHelper {
 
   Future<List<FuelLog>> getFuelLogs(String vehicleId) async {
     final db = await instance.database;
-    final result = await db.query('fuel_logs', where: 'vehicleId = ?', whereArgs: [vehicleId], orderBy: 'odometer DESC');
-    // Чтобы этот код не светился красным, убедись, что создал файл fuel_log.dart с методом fromMap (я давал его в прошлом сообщении)
+    final result = await db.query('fuel_logs', where: 'vehicleId = ?', whereArgs:[vehicleId], orderBy: 'odometer DESC');
     return result.map((json) => FuelLog.fromMap(json)).toList();
   }
 
   // --- МЕТОДЫ ДЛЯ СЕРВИСНЫХ СОБЫТИЙ (SERVICE EVENTS) ---
+  
   Future<void> insertServiceEvent(ServiceEvent event) async {
     final db = await instance.database;
     await db.insert('service_events', event.toMap());
