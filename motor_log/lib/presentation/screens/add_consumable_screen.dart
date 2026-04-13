@@ -13,7 +13,6 @@ class AddConsumableScreen extends StatefulWidget {
 }
 
 class _AddConsumableScreenState extends State<AddConsumableScreen> {
-  // Наш "Справочник" деталей и их стандартный ресурс (в км)
   final Map<String, String> _partsCatalog = {
     'Свечи зажигания': '60000',
     'Ремень ГРМ': '90000',
@@ -26,93 +25,99 @@ class _AddConsumableScreenState extends State<AddConsumableScreen> {
   };
 
   String? _selectedPart;
+  bool _isUsed = false; // Состояние Б/У
   final _customNameController = TextEditingController();
   final _limitController = TextEditingController();
+  final _notesController = TextEditingController();
+  final _partMileageController = TextEditingController(text: '0');
 
   void _saveConsumable() async {
-    // Определяем финальное название детали
-    final partName = _selectedPart == 'Свой вариант...' 
-        ? _customNameController.text 
-        : _selectedPart;
+    final partName = _selectedPart == 'Свой вариант...' ? _customNameController.text : _selectedPart;
 
-    if (partName == null || partName.isEmpty || _limitController.text.isEmpty) {
+    // ЗАЩИТА ОТ "БУЛКИ ХЛЕБА": Название должно быть длиннее 3 символов
+    if (partName == null || partName.trim().length < 3) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Пожалуйста, заполните все поля')),
+        const SnackBar(content: Text('Введите корректное название детали (минимум 3 символа)')),
       );
       return;
     }
 
+    if (_limitController.text.isEmpty) return;
+
     final int limit = int.parse(_limitController.text);
+    final int partMileage = int.tryParse(_partMileageController.text) ?? 0;
+
+    // РАСЧЕТ НАЧАЛЬНОГО ИЗНОСА ДЛЯ Б/У:
+    double startWear = (partMileage / limit).clamp(0.0, 1.0);
 
     final newItem = Consumable(
       id: const Uuid().v4(),
       vehicleId: widget.vehicleId,
       name: partName,
       resourceLimit: limit,
-      currentWear: 0.0, // Новая деталь - износ 0%
+      currentWear: startWear,
+      notes: _notesController.text,
+      initialMileage: partMileage,
     );
 
     await DbHelper.instance.insertConsumable(newItem);
-
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$partName добавлено в список ТО!'), backgroundColor: AppTheme.accentPurple),
-    );
     Navigator.pop(context, true);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Добавить деталь')),
-      body: Padding(
+      appBar: AppBar(title: const Text('Новая деталь')),
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          children:[
+          children: [
             DropdownButtonFormField<String>(
-              decoration: _inputDecoration('Выберите деталь из справочника'),
+              decoration: _inputDecoration('Выберите деталь'),
               value: _selectedPart,
-              items: _partsCatalog.keys.map((String part) {
-                return DropdownMenuItem<String>(value: part, child: Text(part));
-              }).toList(),
-              onChanged: (newValue) {
-                setState(() {
-                  _selectedPart = newValue;
-                  // Если выбрали не "свой вариант", подставляем ресурс автоматически
-                  if (newValue != null && newValue != 'Свой вариант...') {
-                    _limitController.text = _partsCatalog[newValue]!;
-                  } else {
-                    _limitController.clear();
-                  }
-                });
-              },
+              items: _partsCatalog.keys.map((p) => DropdownMenuItem(value: p, child: Text(p))).toList(),
+              onChanged: (v) => setState(() {
+                _selectedPart = v;
+                if (v != 'Свой вариант...') _limitController.text = _partsCatalog[v]!;
+              }),
             ),
-            const SizedBox(height: 16),
-
-            // Показываем поле ввода названия только если выбрали "Свой вариант..."
             if (_selectedPart == 'Свой вариант...') ...[
-              TextField(
-                controller: _customNameController,
-                decoration: _inputDecoration('Название вашей детали'),
-              ),
               const SizedBox(height: 16),
+              TextField(controller: _customNameController, decoration: _inputDecoration('Название детали')),
             ],
-
+            const SizedBox(height: 16),
+            TextField(controller: _limitController, keyboardType: TextInputType.number, decoration: _inputDecoration('Ресурс (км)')),
+            const SizedBox(height: 16),
+            
+            // БЛОК Б/У ЗАПЧАСТИ
+            SwitchListTile(
+              title: const Text('Это Б/У или контрактная деталь'),
+              subtitle: const Text('Укажите пробег детали на момент покупки'),
+              value: _isUsed,
+              activeColor: AppTheme.accentPurple,
+              onChanged: (v) => setState(() => _isUsed = v),
+            ),
+            if (_isUsed)
+              TextField(
+                controller: _partMileageController,
+                keyboardType: TextInputType.number,
+                decoration: _inputDecoration('Текущий пробег запчасти (км)'),
+              ),
+            
+            const SizedBox(height: 16),
             TextField(
-              controller: _limitController,
-              keyboardType: TextInputType.number,
-              decoration: _inputDecoration('Ресурс до замены (км)'),
+              controller: _notesController,
+              maxLines: 2,
+              decoration: _inputDecoration('Заметки (бренд, артикул...)'),
             ),
             
-            const Spacer(),
+            const SizedBox(height: 32),
             ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.accentPurple,
-                minimumSize: const Size(double.infinity, 55),
-              ),
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.accentPurple, minimumSize: const Size(double.infinity, 55)),
               onPressed: _saveConsumable,
-              child: const Text('Сохранить деталь', style: TextStyle(color: Colors.white, fontSize: 16)),
+              child: const Text('Добавить в список', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),

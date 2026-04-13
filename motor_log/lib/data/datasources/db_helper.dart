@@ -46,6 +46,8 @@ class DbHelper {
         name TEXT,
         resourceLimit INTEGER,
         currentWear REAL, 
+        notes TEXT,
+        initialMileage INTEGER,
         FOREIGN KEY (vehicleId) REFERENCES vehicles (id) ON DELETE CASCADE
       )
     ''');

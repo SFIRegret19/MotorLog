@@ -3,7 +3,9 @@ class Consumable {
   final String vehicleId;
   final String name;
   final int resourceLimit;
-  double currentWear; // В процентах от 0.0 до 1.0
+  double currentWear;
+  final String notes;
+  final int initialMileage; // пробег детали при покупке
 
   Consumable({
     required this.id,
@@ -11,6 +13,8 @@ class Consumable {
     required this.name,
     required this.resourceLimit,
     required this.currentWear,
+    this.notes = '',
+    this.initialMileage = 0,
   });
 
   Map<String, dynamic> toMap() {
@@ -20,6 +24,8 @@ class Consumable {
       'name': name,
       'resourceLimit': resourceLimit,
       'currentWear': currentWear,
+      'notes': notes,
+      'initialMileage': initialMileage,
     };
   }
 
@@ -30,6 +36,8 @@ class Consumable {
       name: map['name'],
       resourceLimit: map['resourceLimit'],
       currentWear: map['currentWear'],
+      notes: map['notes'] ?? '',
+      initialMileage: map['initialMileage'] ?? 0,
     );
   }
 }

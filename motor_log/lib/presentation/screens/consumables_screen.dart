@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../data/datasources/db_helper.dart';
 import '../../domain/entities/consumable.dart';
 import '../../core/theme/app_theme.dart';
-import 'add_consumable_screen.dart'; // Импорт экрана добавления
+import 'add_consumable_screen.dart'; 
 import '../../domain/entities/service_event.dart';
 
 class ConsumablesScreen extends StatefulWidget {
@@ -37,7 +37,6 @@ class _ConsumablesScreenState extends State<ConsumablesScreen> {
   void _resetWear(Consumable item) async {
     final priceController = TextEditingController();
 
-    // 1. Спрашиваем цену обслуживания
     final bool? confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -60,26 +59,27 @@ class _ConsumablesScreenState extends State<ConsumablesScreen> {
     if (confirmed == true) {
       final cost = double.tryParse(priceController.text) ?? 0.0;
 
-      // 2. Создаем сервисное событие (для статистики)
       final event = ServiceEvent(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         vehicleId: widget.vehicleId,
         date: DateTime.now().toIso8601String(),
-        mileage: 0, // В идеале тут передать текущий пробег авто
+        mileage: 0, 
         totalCost: cost,
         description: 'Замена: ${item.name}',
       );
 
       await DbHelper.instance.insertServiceEvent(event);
 
-      // 3. Обнуляем износ
       item.currentWear = 0.0;
       await DbHelper.instance.updateConsumable(item);
       _loadData();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${item.name} заменено! Сумма: $cost ₽'), backgroundColor: AppTheme.accentPurple),
+          SnackBar(
+            content: Text('${item.name} заменено! Сумма: $cost ₽'), 
+            backgroundColor: AppTheme.accentPurple
+          ),
         );
       }
     }
@@ -90,14 +90,9 @@ class _ConsumablesScreenState extends State<ConsumablesScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Удалить деталь?'),
-        content: Text(
-          'Вы уверены, что хотите удалить "${item.name}" из списка?',
-        ),
+        content: Text('Вы уверены, что хотите удалить "${item.name}" из списка?'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Отмена'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Отмена')),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             child: const Text('Удалить', style: TextStyle(color: Colors.red)),
@@ -108,7 +103,7 @@ class _ConsumablesScreenState extends State<ConsumablesScreen> {
 
     if (confirmed == true) {
       await DbHelper.instance.deleteConsumable(item.id);
-      _loadData(); // Обновляем список
+      _loadData(); 
     }
   }
 
@@ -126,34 +121,52 @@ class _ConsumablesScreenState extends State<ConsumablesScreen> {
                   itemBuilder: (context, index) {
                     final item = _items[index];
                     return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start, // Текст по левому краю
                           children: [
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Text(
-                                  item.name,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
+                                // Заголовок и заметка в колонке
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.name,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                      // --- ОТОБРАЖЕНИЕ ЗАМЕТКИ ---
+                                      if (item.notes.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 2),
+                                          child: Text(
+                                            item.notes,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: Colors.grey[600],
+                                              fontStyle: FontStyle.italic,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                 ),
                                 Row(
                                   children: [
                                     IconButton(
-                                      icon: const Icon(
-                                        Icons.refresh,
-                                        color: AppTheme.accentPurple,
-                                      ),
+                                      icon: const Icon(Icons.refresh, color: AppTheme.accentPurple),
                                       onPressed: () => _resetWear(item),
                                       tooltip: 'Заменил деталь',
                                     ),
                                     IconButton(
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        color: Colors.redAccent,
-                                      ),
+                                      icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                                       onPressed: () => _deleteItem(item),
                                       tooltip: 'Удалить деталь',
                                     ),
@@ -161,24 +174,42 @@ class _ConsumablesScreenState extends State<ConsumablesScreen> {
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 10),
-                            LinearProgressIndicator(
-                              value: item.currentWear,
-                              minHeight: 10,
-                              borderRadius: BorderRadius.circular(5),
-                              color: item.currentWear > 0.8
-                                  ? Colors.red
-                                  : AppTheme.accentPurple,
+                            const SizedBox(height: 12),
+                            // Прогресс-бар
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: LinearProgressIndicator(
+                                value: item.currentWear,
+                                minHeight: 10,
+                                backgroundColor: AppTheme.primaryPurple.withOpacity(0.3),
+                                color: item.currentWear > 0.8 ? Colors.red : AppTheme.accentPurple,
+                              ),
                             ),
-                            const SizedBox(height: 5),
-                            Text('Износ: ${(item.currentWear * 100).toInt()}%'),
+                            const SizedBox(height: 8),
+                            // Техническая информация
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Ресурс: ${item.resourceLimit} км',
+                                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
+                                ),
+                                Text(
+                                  'Износ: ${(item.currentWear * 100).toInt()}%',
+                                  style: TextStyle(
+                                    fontSize: 12, 
+                                    fontWeight: FontWeight.bold,
+                                    color: item.currentWear > 0.8 ? Colors.red : Colors.black87,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
                         ),
                       ),
                     );
                   },
                 ),
-      // --- НОВОЕ: КНОПКА ДОБАВЛЕНИЯ РАСХОДНИКА ---
       floatingActionButton: FloatingActionButton(
         backgroundColor: AppTheme.primaryPurple,
         onPressed: () async {
@@ -188,7 +219,6 @@ class _ConsumablesScreenState extends State<ConsumablesScreen> {
               builder: (context) => AddConsumableScreen(vehicleId: widget.vehicleId),
             ),
           );
-          // Если на экране добавления нажали "Сохранить", обновляем список здесь
           if (result == true) {
             _loadData();
           }
